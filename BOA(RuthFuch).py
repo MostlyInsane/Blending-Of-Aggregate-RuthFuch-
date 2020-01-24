@@ -43,40 +43,57 @@ def extract_sample(sample):     # ReFormats DataFrame Such That The Least Possib
     i = 0
     sample = np.array(sample.iloc[0:, 0:3])
     while i < sample.shape[0]:
-        if sample[i + 1][1] != 0:
+        if sample[i + 1][2] != 100:
             break
         for j in range(2):
-            if sample[i][1] == 0:
+            if sample[i][2] == 100:
                 sample = np.delete(sample, i, axis=0)
                 break
     sample = pd.DataFrame(sample, columns=['Sieve Size (mm)', 'Weight Retained (gm)', 'Cumulative percent passing'])
     return sample
 
+def transform_by1 (sample, grade):
+
+    grade_used = grade[0: sample.shape[0]-1]
+    grade_used.append(0)
+    origin_X = (grade_used - sample.iloc[0:, 0]).tolist()
+    return origin_X
+
 def translate_coordinates(sample, grading):
-
-    grade_1  = (100, 97.5, 78, 65, 46, 35, 14, 5, 0)                    # Contains AVG Cumulative Weight for Grading_1
-    transform_by = (55, 60, 51.5, 51.8, 41.25, 32.64, 13.7, 4.925,0)    # Origin Shifted Resulting in Different Pseudo_Scales In X-Axis
-
-    grad_2     = (100, 95, 83, 68, 46, 35, 14, 5)                       # Contains AVG Cumulative Weight for Grading_2
-
-    trans_x_coor = []
-
-    for i in range(sample.shape[0]):
-        for j in range(len(grade_1)):
-            if grade_1[j] == sample.iloc[i, 2]:
-                trans_x_coor.append(sample.iloc[i, 0] + transform_by[j])
-                break
-            if grade_1[j] > sample.iloc[i, 2] > grade_1[j + 1]:
-                trans_x_coor.append(sample.iloc[i, 0] + transform_by[j+1])
-                break
-    df = pd.DataFrame(trans_x_coor, columns=['Trans_X'])
+    print '************ SAMPLE CHANGE*************'
+    trans_x_coor   = []
+    grade = [100, 77.5, 47.5, 36, 25, 17, 8, 0]                 # Exception can occur when compared with transform by as lengths are not equal
+    print sample
+    transform_by = transform_by1(sample, grade)
+    for i in range(sample.shape[0]):        # Translation Of Origin For Different Regions
+        for j in range(len(grade)):
+            if grade[j] == sample.iloc[i, 2]:
+                if j > len(transform_by):
+                    trans_x_coor.append(sample.iloc[i, 0])
+                    print
+                else:
+                    trans_x_coor.append(sample.iloc[i, 0])
+                    break
+            if grade[j] > sample.iloc[i, 2] > grade[j + 1]:
+                if j+1 > len(transform_by):
+                    nested_origin = np.interp(sample.iloc[i,2], [0, grade[i]], [0, transform_by[len(transform_by)-2]])      # May or MayNot Be Generalised
+                    trans_x_coor.append(sample.iloc[i, 2] - nested_origin)
+                    trans_x_coor[i] += sample.iloc[i,0] - trans_x_coor[i]
+                else:
+                    nested_origin = np.interp(sample.iloc[i,2], [grade[j+1], grade[j]], [transform_by[j+1], transform_by[j]])
+                    trans_x_coor.append(sample.iloc[i, 2] - nested_origin)
+                    trans_x_coor[i] += sample.iloc[i,0] - trans_x_coor[i]           # YoYo Nigga
+                    break
+    #trans_x_coor = (np.array(trans_x_coor) * 45) / 100      # Scaling X_Coordinate back
+    df = pd.DataFrame(trans_x_coor, columns=['Trans_X (Sieve)'])
     df = pd.concat([df, sample.iloc[0:,1:3]], axis=1)
+    print df
     return df
 
 class AggregateMixProportion:
 
     def __init__(self):
-        data = pd.read_excel(r'/Users/nikhil/Desktop/Project/Blending Of Aggregate/Utilities/Input.xls')
+        data = pd.read_excel(r'/Users/nikhil/Desktop/Project/Blending Of Aggregate/Utilities/Research_Data.xls')
         self.sample_A = data.iloc[0:, [0, 1]]   # Sample A
         self.sample_B = data.iloc[0:, [0, 2]]   # Sample B
         self.sample_C = data.iloc[0:, [0, 3]]   # Sample C
@@ -85,13 +102,17 @@ class AggregateMixProportion:
         percent_passing(self.sample_B)  # Cumulative Percent B
         percent_passing(self.sample_C)  # Cumulative Percent C
 
+        self.sample_A.iloc[0:, 2] = [100, 63, 19, 8, 5, 3, 0, 0]
+        self.sample_B.iloc[0:, 2] = [100, 100, 100, 93, 55, 36, 3, 0]
+        self.sample_C.iloc[0:, 2] = [100, 100, 100, 100, 100, 97, 88, 0]
+
         self.extr_sample_A = extract_sample(self.sample_A)  # ReFormat DataFrame Such That Only 100% Passing Sieve Is Obtained (Sample A)
         self.extr_sample_B = extract_sample(self.sample_B)  # ReFormat DataFrame Such That Only 100% Passing Sieve Is Obtained (Sample B)
         self.extr_sample_C = extract_sample(self.sample_C)  # ReFormat DataFrame Such That Only 100% Passing Sieve Is Obtained (Sample C)
 
         self.trans_sample_A = translate_coordinates(self.extr_sample_A, 1)  # Translated Such That Different Regions Have Different Scales
         self.trans_sample_B = translate_coordinates(self.extr_sample_B, 1)  # Translated Such That Different Regions Have Different Scales
-        self.trans_sample_C =translate_coordinates(self.extr_sample_C, 1)  # Translated Such That Different Regions Have Different Scales
+        self.trans_sample_C = translate_coordinates(self.extr_sample_C, 1)  # Translated Such That Different Regions Have Different Scales
 
         self.theta_A = best_fit(self.trans_sample_A)    # Obtained BestFit (Sample A)
         self.theta_B = best_fit(self.trans_sample_B)    # Obtained BestFit (Sample B)
@@ -106,12 +127,18 @@ class AggregateMixProportion:
         self.straight_line_C = np.matmul(np.array(self.resh_sample_C.iloc[0:, 0:2]), np.array(self.theta_C))    # Predicted Value (Sample C)
 
     def plot_curve(self):
+        plt.scatter(self.trans_sample_A.iloc[0:, 0], self.trans_sample_A.iloc[0:, 2])
+        plt.scatter(self.trans_sample_B.iloc[0:, 0], self.trans_sample_B.iloc[0:, 2])
+        plt.scatter(self.trans_sample_C.iloc[0:, 0], self.trans_sample_C.iloc[0:, 2])
         plt.plot(self.trans_sample_A.iloc[0:, 0], self.trans_sample_A.iloc[0:, 2], linewidth=1)
         plt.plot(self.trans_sample_B.iloc[0:, 0], self.trans_sample_B.iloc[0:, 2], linewidth=1)
         plt.plot(self.trans_sample_C.iloc[0:, 0], self.trans_sample_C.iloc[0:, 2], linewidth=1)
-        plt.plot(self.trans_sample_A.iloc[0:, 0], self.straight_line_A, '--')
-        plt.plot(self.trans_sample_B.iloc[0:, 0], self.straight_line_B, '--')
-        plt.plot(self.trans_sample_C.iloc[0:, 0], self.straight_line_C, '--')
+        #plt.plot(self.trans_sample_A.iloc[0:, 0], self.straight_line_A, '--')
+        #plt.plot(self.trans_sample_B.iloc[0:, 0], self.straight_line_B, '--')
+        #plt.plot(self.trans_sample_C.iloc[0:, 0], self.straight_line_C, '--')
+        plt.xlabel('Sieve Size (mm)', color='black')
+        plt.ylabel('Cumulative Percent Passing (%)', color='black')
+        plt.legend(('Sample A', 'Sample B', 'Sample C'))
         plt.show()
 
 obj = AggregateMixProportion()
