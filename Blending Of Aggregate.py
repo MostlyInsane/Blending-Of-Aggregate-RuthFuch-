@@ -4,7 +4,6 @@ from shapely.geometry import Polygon
 
 matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
-
 plt.style.use('ggplot')
 import numpy as np
 
@@ -61,12 +60,15 @@ def test_transform(sample):    # Transformed X-Coordinates Of Sieve's
     sample.iloc[0:, 0] = sample.iloc[0:, 0] + origin
     return sample
 
-def line_equation(sample, str_line_2):
+def polygon_builder(sample, str_line_2):    # Cost Function
     xy_values = []
     line_slo_inter = []
     last_two_points = False
     polygon_coor = []
-    inter_coor =[]              # Which Is What We Require
+    inter_coor =[]
+
+    #print str_line_2
+
     for i in range(sample.shape[0] - 1):
         xy_values.append([sample.iloc[i, 0], sample.iloc[i, 2], sample.iloc[i + 1, 0], sample.iloc[i + 1, 2]])
         line_slo_inter.append(slope_intercept(xy_values[i][0], xy_values[i][1], xy_values[i][2], xy_values[i][3]))
@@ -76,41 +78,70 @@ def line_equation(sample, str_line_2):
             inter_coor.append(inter_sec)
     inter_coor.append([0,0])
     inter_coor.append([predicted_X(100, str_line_2), 100])
-    print 'BEFORE',inter_coor
     if inter_coor[len(inter_coor) - 1][0] < sample.iloc[0, 0]:
         inter_coor.append([sample.iloc[0, 0], sample.iloc[0, 2]])
-    print 'AFTER',inter_coor
     inter_coor = sorted(inter_coor, key=lambda x: x[0])
     best_fit_inter = [[predicted_X(0, str_line_2), 0],[predicted_X(100, str_line_2), 100]]
-    #print best_fit_inter
-    print 'IMAO:', inter_coor
     for i in range(len(inter_coor) - 1):                       # Outer Loop Runs On [ [0,0], [Intersection of Co-ordinates With Distribution Curve], [x,100]
         if last_two_points:
             break
         temp_coor = [inter_coor[i], inter_coor[i+1]]
-        #print 'Hello Temp for iteration i (Outer)', temp_coor
         for j in range(sample.shape[0]):                       # Inner Loop Runs Within Sample Sieve Sizes
-            #print 'is', inter_coor[i][0], '<', sample.iloc[j, 0], '<', inter_coor[i + 1][0]
             if inter_coor[i][0] < sample.iloc[j, 0] < inter_coor[i + 1][0]:
-                #print ' lol condition is satisfied'
                 temp_coor.append([sample.iloc[j, 0], sample.iloc[j, 2]])
         if inter_coor[i][0] < best_fit_inter[0][0] < inter_coor[i + 1][0]:
             temp_coor.append(best_fit_inter[0])
-
         if inter_coor[i][0] < best_fit_inter[1][0] < inter_coor[i + 1][0]:
             temp_coor.append(best_fit_inter[1])
-        if best_fit_inter[0][0] < 0 and inter_coor[i][0] == 0:                                              # Assuming That There Would Be No Negative Value For y = 100 for best_fit_line
+        if best_fit_inter[0][0] < 0 and inter_coor[i][0] == 0:  # Assuming That There Would Be No Negative Value For y = 100 for best_fit_line
             temp_coor.append(best_fit_inter[0])
         temp_coor = sorted(temp_coor, key=lambda x: x[0])
         if len(temp_coor) == 2:
             last_two_points = True
             temp_coor.append([sample.iloc[0, 0], sample.iloc[0, 2]])
+        if best_fit_inter[0][0] < 0 and inter_coor[i][0] == 0:
+            temp_coor.append(best_fit_inter[0])
+        else:
+            temp_coor.append(inter_coor[i])
         polygon_coor.append(temp_coor)
-        print 'AFTER ITER ', i, ':', polygon_coor
-    polygon_coor = sorted(polygon_coor, key=lambda x: x[0])
+    #print 'Polygon Coordinates', polygon_coor
+    polygon_area = calculate_area(polygon_coor, sample, str_line_2)
+    #print sum(polygon_area)
+    return sum(polygon_area)
 
-    #print 'Final_List =', polygon_coor
-    return inter_coor
+def calculate_area(polygon_coor, sample, str_line):
+    polygon_area=[]
+    for i in range(len(polygon_coor)):
+        value = 0
+        sign = +1
+        for j in range(sample.shape[0]):
+            for k in range(len(polygon_coor[i])):
+                if polygon_coor[i][k][0] == sample.iloc[j, 0]:
+                    value = [polygon_coor[i][k][0], sample.iloc[j, 2]]
+                    break
+            if value != 0:
+                break
+        pred_y_line = str_line[0] * value[0] + str_line[1]
+        if pred_y_line < value[1]:
+            sign = -1
+        polygon = Polygon(polygon_coor[i])
+        polygon_area.append(polygon.area * sign)
+    return polygon_area
+
+def gradient_descent(theta, sample, learning_rate = 0.0001, iterations = 350):
+    cost_history = []
+    print 'Theta Before: ', theta
+    while True:
+        #print theta
+        cost_history.append(polygon_builder(sample, theta))
+        theta[0] = theta[0] - (learning_rate * float(cost_history[len(cost_history) - 1]))
+        theta[1] = theta[1] - (learning_rate * float(cost_history[len(cost_history) - 1]))
+        if -1.0 < cost_history[len(cost_history) - 1] < 1.0:
+            break
+
+    print cost_history
+    print 'Theta After', theta
+    return theta
 
 def slope_intercept(x1,y1,x2,y2):
     a = (y2 - y1) / (x2 - x1)
@@ -172,21 +203,21 @@ class AggregateMixProportion:
         self.theta_B = best_fit(self.extr_sample_B)    # Obtained BestFit (Sample B)
         self.theta_C = best_fit(self.extr_sample_C)    # Obtained BestFit (Sample C)
 
-        self.join_bes_fit, self.slo_inter = join_best_fit(self.theta_A, self.theta_B, self.theta_C)   # Obtains Co-Ordinates Of Intersected Best-Fit Line
-        self.inter_1 = inter_point(self.slo_inter[0], [1,0])    # Intersected Co-ordinates of Line Joining Best-fit With X=Y line
-        self.inter_2 = inter_point(self.slo_inter[1], [1,0])    # Intersected Co-ordinates of Line Joining Best-fit With X=Y line
-
         print self.extr_sample_A.to_string()
-        self.line_coor_A = line_equation(self.extr_sample_A, [1.0124, -14.609995412233065])
-        #print self.line_coor_A
+        self.theta_A = np.array(gradient_descent(list(reversed(self.theta_A)), self.extr_sample_A))  # Gets The Minimum Balanced Area Line Parameters (Sample A)
+        self.theta_A = list(reversed(self.theta_A))
 
         print self.extr_sample_B.to_string()
-        self.line_coor_B = line_equation(self.extr_sample_B, [2.3868899751582653, -5.274968613938076])
-        #print self.line_coor_B
+        self.theta_B = np.array(gradient_descent(list(reversed(self.theta_B)), self.extr_sample_B))   # Gets The Minimum Balanced Area Line Parameters (Sample A)
+        self.theta_B = list(reversed(self.theta_B))
 
         print self.extr_sample_C.to_string()
-        self.line_coor_C = line_equation(self.extr_sample_C, [3.6558073654390943, 25.552407932011313])
-        #print self.line_coor_C
+        self.theta_C = np.array(gradient_descent(list(reversed(self.theta_C)), self.extr_sample_C))  # Gets The Minimum Balanced Area Line Parameters (Sample A)
+        self.theta_C = list(reversed(self.theta_C))
+
+        self.join_bes_fit, self.slo_inter = join_best_fit(self.theta_A, self.theta_B,self.theta_C)  # Obtains Co-Ordinates Of Intersected Best-Fit Line
+        self.inter_1 = inter_point(self.slo_inter[0],[1, 0])  # Intersected Co-ordinates of Line Joining Best-fit With X=Y line
+        self.inter_2 = inter_point(self.slo_inter[1],[1, 0])  # Intersected Co-ordinates of Line Joining Best-fit With X=Y line
 
         self.resh_sample_A = reshape_matrix(self.trans_sample_A)    # Included Bias Term Computational Purpose (Sample A)
         self.resh_sample_B = reshape_matrix(self.trans_sample_B)    # Included Bias Term Computational Purpose (Sample B)
@@ -212,10 +243,10 @@ class AggregateMixProportion:
         plt.plot(self.trans_sample_A.iloc[0:, 0], self.straight_line_A, '--', color='grey')
         plt.plot(self.trans_sample_B.iloc[0:, 0], self.straight_line_B, '--', color='grey')
         plt.plot(self.trans_sample_C.iloc[0:, 0], self.straight_line_C, '--', color='grey')
-        #plt.plot([self.join_bes_fit[0][0], self.join_bes_fit[1][0]], [self.join_bes_fit[0][1],self.join_bes_fit[1][1]], '--', color='firebrick')
-        #plt.plot([self.join_bes_fit[2][0], self.join_bes_fit[3][0]], [self.join_bes_fit[2][1],self.join_bes_fit[3][1]], '--', color='firebrick')
-        #plt.plot([-5,self.inter_1[0]], [self.inter_1[1], self.inter_1[1]], '--', color='firebrick')
-        #plt.plot([-5,self.inter_2[0]], [self.inter_2[1], self.inter_2[1]], '--', color='firebrick')
+        plt.plot([self.join_bes_fit[0][0], self.join_bes_fit[1][0]], [self.join_bes_fit[0][1],self.join_bes_fit[1][1]], '--', color='firebrick')
+        plt.plot([self.join_bes_fit[2][0], self.join_bes_fit[3][0]], [self.join_bes_fit[2][1],self.join_bes_fit[3][1]], '--', color='firebrick')
+        plt.plot([-5,self.inter_1[0]], [self.inter_1[1], self.inter_1[1]], '--', color='firebrick')
+        plt.plot([-5,self.inter_2[0]], [self.inter_2[1], self.inter_2[1]], '--', color='firebrick')
         plt.axis([-5,120,-5,105])
         plt.xlabel('Sieve Size (mm)', color='black')
         plt.ylabel('Cumulative Percent Passing (%)', color='black')
