@@ -67,8 +67,6 @@ def polygon_builder(sample, str_line_2):    # Cost Function
     polygon_coor = []
     inter_coor =[]
 
-    #print str_line_2
-
     for i in range(sample.shape[0] - 1):
         xy_values.append([sample.iloc[i, 0], sample.iloc[i, 2], sample.iloc[i + 1, 0], sample.iloc[i + 1, 2]])
         line_slo_inter.append(slope_intercept(xy_values[i][0], xy_values[i][1], xy_values[i][2], xy_values[i][3]))
@@ -82,11 +80,11 @@ def polygon_builder(sample, str_line_2):    # Cost Function
         inter_coor.append([sample.iloc[0, 0], sample.iloc[0, 2]])
     inter_coor = sorted(inter_coor, key=lambda x: x[0])
     best_fit_inter = [[predicted_X(0, str_line_2), 0],[predicted_X(100, str_line_2), 100]]
-    for i in range(len(inter_coor) - 1):                       # Outer Loop Runs On [ [0,0], [Intersection of Co-ordinates With Distribution Curve], [x,100]
+    for i in range(len(inter_coor) - 1):  # Outer Loop Runs On [ [0,0], [Intersection of Co-ordinates With Distribution Curve], [x,100]
         if last_two_points:
             break
         temp_coor = [inter_coor[i], inter_coor[i+1]]
-        for j in range(sample.shape[0]):                       # Inner Loop Runs Within Sample Sieve Sizes
+        for j in range(sample.shape[0]):  # Inner Loop Runs Within Sample Sieve Sizes
             if inter_coor[i][0] < sample.iloc[j, 0] < inter_coor[i + 1][0]:
                 temp_coor.append([sample.iloc[j, 0], sample.iloc[j, 2]])
         if inter_coor[i][0] < best_fit_inter[0][0] < inter_coor[i + 1][0]:
@@ -106,6 +104,8 @@ def polygon_builder(sample, str_line_2):    # Cost Function
         polygon_coor.append(temp_coor)
     #print 'Polygon Coordinates', polygon_coor
     polygon_area = calculate_area(polygon_coor, sample, str_line_2)
+    #print inter_coor
+    #print polygon_area
     #print sum(polygon_area)
     return sum(polygon_area)
 
@@ -128,17 +128,15 @@ def calculate_area(polygon_coor, sample, str_line):
         polygon_area.append(polygon.area * sign)
     return polygon_area
 
-def gradient_descent(theta, sample, learning_rate = 0.0001, iterations = 350):
+def optimize_area(theta, sample, learning_rate = 0.0001, iterations = 350):
     cost_history = []
     print 'Theta Before: ', theta
     while True:
-        #print theta
         cost_history.append(polygon_builder(sample, theta))
         theta[0] = theta[0] - (learning_rate * float(cost_history[len(cost_history) - 1]))
         theta[1] = theta[1] - (learning_rate * float(cost_history[len(cost_history) - 1]))
         if -1.0 < cost_history[len(cost_history) - 1] < 1.0:
             break
-
     print cost_history
     print 'Theta After', theta
     return theta
@@ -171,10 +169,17 @@ def join_best_fit(theta_A, theta_B, theta_C):
                  slope_intercept(coor_B[1][0], coor_B[1][1], coor_A[0][0], coor_A[0][1])]
     return [[coor_C[1][0], coor_C[1][1]], [coor_B[0][0], coor_B[0][1]],[coor_B[1][0], coor_B[1][1]], [coor_A[0][0], coor_A[0][1]]], slo_inter
 
+def get_max_slope_inter(sample):
+    slope_inter = []
+    for i in range(sample.shape[0] - 1):
+        slope_inter.append(slope_intercept(sample.iloc[i, 0], sample.iloc[i, 2], sample.iloc[i + 1, 0], sample.iloc[i + 1, 2]))
+    slope_inter = sorted(slope_inter, key=lambda x: x[0])
+    return list(slope_inter[len(slope_inter) - 1])
+
 class AggregateMixProportion:
 
     def __init__(self):
-        data = pd.read_excel(r'/Users/nikhil/Desktop/Project/Blending Of Aggregate/Utilities/Research_Data.xls')
+        data = pd.read_excel(r'/Users/nikhil/Desktop/Project/Blending Of Aggregate/Utilities/Input.xlsx')
         self.sample_A = data.iloc[0:, [0, 1]]   # Sample A
         self.sample_B = data.iloc[0:, [0, 2]]   # Sample B
         self.sample_C = data.iloc[0:, [0, 3]]   # Sample C
@@ -183,9 +188,9 @@ class AggregateMixProportion:
         percent_passing(self.sample_B)  # Cumulative Percent B
         percent_passing(self.sample_C)  # Cumulative Percent C
 
-        self.sample_A.iloc[0:, 2] = [100, 63, 19, 8, 5, 3, 0, 0]
-        self.sample_B.iloc[0:, 2] = [100, 100, 100, 93, 55, 36, 3, 0]
-        self.sample_C.iloc[0:, 2] = [100, 100, 100, 100, 100, 97, 88, 0]
+        #self.sample_A.iloc[0:, 2] = [100, 63, 19, 8, 5, 3, 0, 0]
+        #self.sample_B.iloc[0:, 2] = [100, 100, 100, 93, 55, 36, 3, 0]
+        #self.sample_C.iloc[0:, 2] = [100, 100, 100, 100, 100, 97, 88, 0]
 
         self.sample_A = pd.concat([self.sample_A, data.iloc[0:, 4]], axis=1)    # Inculcates Grade Of Sample Used Into The DataFrame (Sample A)
         self.sample_B = pd.concat([self.sample_B, data.iloc[0:, 4]], axis=1)    # Inculcates Grade Of Sample Used Into The DataFrame (Sample B)
@@ -204,20 +209,26 @@ class AggregateMixProportion:
         self.theta_C = best_fit(self.extr_sample_C)    # Obtained BestFit (Sample C)
 
         print self.extr_sample_A.to_string()
-        self.theta_A = np.array(gradient_descent(list(reversed(self.theta_A)), self.extr_sample_A))  # Gets The Minimum Balanced Area Line Parameters (Sample A)
-        self.theta_A = list(reversed(self.theta_A))
+        line_param = get_max_slope_inter(self.extr_sample_A)                    # Gets The Maximum Slope Line To Be Oriented
+        self.theta_A = np.array(optimize_area(line_param, self.extr_sample_A))  # Gets The Minimum Balanced Area Line Parameters (Sample A)
+        self.theta_A = list(reversed(self.theta_A))                             # Input Type For Other Line(s) Of Code
+        print '------------------------------------------------------------------------------------'
 
         print self.extr_sample_B.to_string()
-        self.theta_B = np.array(gradient_descent(list(reversed(self.theta_B)), self.extr_sample_B))   # Gets The Minimum Balanced Area Line Parameters (Sample A)
-        self.theta_B = list(reversed(self.theta_B))
+        line_param = get_max_slope_inter(self.extr_sample_B)                     # Gets The Maximum Slope Line To Be Oriented
+        self.theta_B = np.array(optimize_area(line_param, self.extr_sample_B))   # Gets The Minimum Balanced Area Line Parameters (Sample A)
+        self.theta_B = list(reversed(self.theta_B))                              # Input Type For Other Line(s) Of Code
+        print '------------------------------------------------------------------------------------'
 
         print self.extr_sample_C.to_string()
-        self.theta_C = np.array(gradient_descent(list(reversed(self.theta_C)), self.extr_sample_C))  # Gets The Minimum Balanced Area Line Parameters (Sample A)
-        self.theta_C = list(reversed(self.theta_C))
+        line_param = get_max_slope_inter(self.extr_sample_C)                    # Gets The Maximum Slope Line To Be Oriented
+        self.theta_C = np.array(optimize_area(line_param, self.extr_sample_C))  # Gets The Minimum Balanced Area Line Parameters (Sample A)
+        self.theta_C = list(reversed(self.theta_C))                             # Input Type For Other Line(s) Of Code
+        print '------------------------------------------------------------------------------------'
 
         self.join_bes_fit, self.slo_inter = join_best_fit(self.theta_A, self.theta_B,self.theta_C)  # Obtains Co-Ordinates Of Intersected Best-Fit Line
-        self.inter_1 = inter_point(self.slo_inter[0],[1, 0])  # Intersected Co-ordinates of Line Joining Best-fit With X=Y line
-        self.inter_2 = inter_point(self.slo_inter[1],[1, 0])  # Intersected Co-ordinates of Line Joining Best-fit With X=Y line
+        self.inter_1 = inter_point(self.slo_inter[0],[1, 0])                                        # Intersected Co-ordinates of Line Joining Best-fit With X=Y line
+        self.inter_2 = inter_point(self.slo_inter[1],[1, 0])                                        # Intersected Co-ordinates of Line Joining Best-fit With X=Y line
 
         self.resh_sample_A = reshape_matrix(self.trans_sample_A)    # Included Bias Term Computational Purpose (Sample A)
         self.resh_sample_B = reshape_matrix(self.trans_sample_B)    # Included Bias Term Computational Purpose (Sample B)
@@ -229,8 +240,8 @@ class AggregateMixProportion:
 
         print
         print 'Percentage of Sample A :', self.inter_1[0]
-        print 'Percentage of Sample B :', self.inter_1[0] + self.inter_2[0]
-        print 'Percentage of Sample C :', 100 - (self.inter_1[0] + self.inter_2[0])
+        print 'Percentage of Sample B :', self.inter_2[0] - self.inter_1[0]
+        print 'Percentage of Sample C :', 100 - self.inter_2[0]
 
     def plot_curve(self):
         plt.scatter(self.extr_sample_A.iloc[0:, 0], self.extr_sample_A.iloc[0:, 2])
